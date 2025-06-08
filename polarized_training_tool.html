@@ -1,33 +1,4 @@
-                <div class="vv-export-section">
-                    <h3>📤 Exporteer je gepolariseerde schema</h3>
-                    <div class="vv-export-buttons">
-                        <button class="vv-export-btn zwift" onclick="exportZwift()">
-                            <span>🟠</span> Export naar Zwift
-                        </button>
-                        <button class="vv-export-btn strava" onclick="shareStrava()">
-                            <span>🟠</span> Deel op Strava
-                        </button>
-                        <button class="vv-export-btn print" onclick="printPlan()">
-                            <span>🖨️</span> Print Schema
-                        </button>
-                        <button class="vv-export-btn" onclick="emailPlan()">
-                            <span>📧</span> Email naar mezelf
-                        </button>
-                    </div>
-                    
-                    <h4 style="margin-top: 30px; color: #495057;">💾 Instellingen Opslaan</h4>
-                    <div class="vv-export-buttons">
-                        <button class="vv-export-btn" onclick="exportSettings()" style="background: #28a745;">
-                            <span>💾</span> Export Instellingen
-                        </button>
-                        <button class="vv-export-btn" onclick="importSettings()" style="background: #17a2b8;">
-                            <span>📥</span> Import Instellingen
-                        </button>
-                    </div>
-                    <p style="text-align: center; color: #666; font-size: 0.9rem; margin-top: 10px;">
-                        Sla je FTP, gewicht en voorkeuren op om later weer te gebruiken
-                    </p>
-                </div><!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="nl">
 <head>
     <meta charset="UTF-8">
@@ -785,7 +756,7 @@
                     
                     <div class="vv-form-group">
                         <label>🎯 Trainingsdoel</label>
-                        <select id="vvGoal" onchange="updateProgress()">
+                        <select id="vvGoal" onchange="updateProgress(); saveSessionData();">
                             <option value="ftp">FTP Verhoging (Threshold Power)</option>
                             <option value="climbing">Klimvermogen & W/kg Optimalisatie</option>
                             <option value="racing">Zwift Racing & Criterium Prep</option>
@@ -796,7 +767,7 @@
                     
                     <div class="vv-form-group">
                         <label>🚲 Trainer Setup</label>
-                        <select id="vvTrainer" onchange="updateProgress()">
+                        <select id="vvTrainer" onchange="updateProgress(); saveSessionData();">
                             <option value="smart">Smart Trainer (ERG Mode + Power)</option>
                             <option value="basic">Basic Trainer (Manual + HR/RPE)</option>
                         </select>
@@ -805,7 +776,7 @@
                     
                     <div class="vv-form-group">
                         <label>🏆 Ervaringsniveau</label>
-                        <select id="vvLevel" onchange="updateProgress()">
+                        <select id="vvLevel" onchange="updateProgress(); saveSessionData();">
                             <option value="beginner">Beginner (0-1 jaar training)</option>
                             <option value="intermediate" selected>Gemiddeld (1-3 jaar)</option>
                             <option value="advanced">Gevorderd (3+ jaar)</option>
@@ -844,6 +815,19 @@
                             <span>📧</span> Email naar mezelf
                         </button>
                     </div>
+                    
+                    <h4 style="margin-top: 30px; color: #495057;">💾 Instellingen Opslaan</h4>
+                    <div class="vv-export-buttons">
+                        <button class="vv-export-btn" onclick="exportSettings()" style="background: #28a745;">
+                            <span>💾</span> Export Instellingen
+                        </button>
+                        <button class="vv-export-btn" onclick="importSettings()" style="background: #17a2b8;">
+                            <span>📥</span> Import Instellingen
+                        </button>
+                    </div>
+                    <p style="text-align: center; color: #666; font-size: 0.9rem; margin-top: 10px;">
+                        Sla je FTP, gewicht en voorkeuren op om later weer te gebruiken
+                    </p>
                 </div>
                 
                 <div class="vv-tips">
@@ -1076,6 +1060,8 @@
             }
         }
     }
+
+    function updateFormValidation() {
         const ftp = parseInt(document.getElementById('vvFtp').value);
         const weight = parseFloat(document.getElementById('vvWeight').value);
         const generateBtn = document.getElementById('generateBtn');
@@ -2014,12 +2000,16 @@
             el.classList.remove('error');
         });
         
+        // Clear session data
+        sessionData = {};
+        
         updateFormValidation();
         window.scrollTo(0, 0);
     }
     
     // Initialize validation on page load
     document.addEventListener('DOMContentLoaded', function() {
+        loadSessionData(); // Load saved data first
         validateInput('all');
         updateProgress();
     });
