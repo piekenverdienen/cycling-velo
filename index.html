@@ -526,6 +526,48 @@
             font-size: 0.8rem;
             font-weight: bold;
         }
+
+        .vv-threshold-bar {
+            background: #9c27b0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 0.8rem;
+            font-weight: bold;
+        }
+
+        .vv-overall-summary {
+            margin-top: 40px;
+            background: linear-gradient(135deg, #fff3e0 0%, #fce4ec 100%);
+            border: 2px solid #ffb74d;
+            border-radius: 12px;
+            padding: 30px;
+        }
+
+        .vv-overall-summary h3 {
+            color: #d84315;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .vv-polarized-summary.overall {
+            margin-top: 25px;
+        }
+
+        .vv-balance-tag {
+            margin-top: 15px;
+            text-align: center;
+            font-weight: 600;
+        }
+
+        .vv-balance-tag.positive {
+            color: #2e7d32;
+        }
+
+        .vv-balance-tag.warning {
+            color: #d32f2f;
+        }
         
         .vv-export-section {
             background: #f8f9fa;
@@ -918,6 +960,7 @@
     var globalFtp, globalWeight, globalDays, globalGoal, globalTrainer, globalLevel;
     var isFormValid = false;
     var sessionData = {}; // In-memory storage for session
+    const STORAGE_KEY = 'vivelevelo-settings';
     
     // Input validation functions
     function validateInput(type) {
@@ -1009,10 +1052,31 @@
             level: document.getElementById('vvLevel').value,
             timestamp: new Date().toISOString()
         };
+        try {
+            if (typeof localStorage !== 'undefined') {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(sessionData));
+            }
+        } catch (error) {
+            console.warn('Kon Vivelevelo instellingen niet opslaan in localStorage:', error);
+        }
         console.log('Session data saved:', sessionData);
     }
-    
+
     function loadSessionData() {
+        if (Object.keys(sessionData).length === 0) {
+            try {
+                if (typeof localStorage !== 'undefined') {
+                    var stored = localStorage.getItem(STORAGE_KEY);
+                    if (stored) {
+                        sessionData = JSON.parse(stored) || {};
+                    }
+                }
+            } catch (error) {
+                console.warn('Kon Vivelevelo instellingen niet laden uit localStorage:', error);
+                sessionData = {};
+            }
+        }
+
         if (Object.keys(sessionData).length > 0) {
             document.getElementById('vvFtp').value = sessionData.ftp || '250';
             document.getElementById('vvWeight').value = sessionData.weight || '75';
@@ -1020,7 +1084,7 @@
             document.getElementById('vvGoal').value = sessionData.goal || 'ftp';
             document.getElementById('vvTrainer').value = sessionData.trainer || 'smart';
             document.getElementById('vvLevel').value = sessionData.level || 'intermediate';
-            
+
             validateInput('all');
             updateProgress();
             console.log('Session data loaded');
@@ -1053,6 +1117,13 @@
             try {
                 const parsed = JSON.parse(importData);
                 sessionData = parsed;
+                try {
+                    if (typeof localStorage !== 'undefined') {
+                        localStorage.setItem(STORAGE_KEY, JSON.stringify(sessionData));
+                    }
+                } catch (storageError) {
+                    console.warn('Kon Vivelevelo instellingen niet importeren naar localStorage:', storageError);
+                }
                 loadSessionData();
                 alert('✅ Instellingen succesvol geïmporteerd!');
             } catch (error) {
@@ -1193,16 +1264,21 @@
         html += '<p style="text-align: center; margin-bottom: 30px; color: #666; font-size: 1.05rem;">3:1 Loading Pattern - Week 1-3 Opbouw, Week 4 Recovery, Week 5-6 Peak & Test</p>';
         
         // Generate all 6 weeks with improved structure
+        var allWeekStats = [];
         for (var week = 1; week <= 6; week++) {
-            html += generateWeek(week);
+            var weekResult = generateWeek(week);
+            html += weekResult.html;
+            allWeekStats.push(weekResult.stats);
         }
-        
+
+        html += renderOverallSummary(allWeekStats);
+
         document.getElementById('vvOutput').innerHTML = html;
     }
     
     function generateWeek(week) {
         var html = '<div class="vv-week-container">';
-        
+
         // Week header with improved theming
         var weekThemes = {
             1: { name: 'Adaptatie Fase', color: '#4caf50', focus: 'Aerobe basis + introductie Z3' },
@@ -1212,71 +1288,91 @@
             5: { name: 'Peak Performance', color: '#f44336', focus: 'Race sharpness + power' },
             6: { name: 'Test & Validate', color: '#795548', focus: 'FTP test + prestatie check' }
         };
-        
+
         var theme = weekThemes[week];
         html += '<div class="vv-week-header" style="background: ' + theme.color + ';">';
         html += '<h3>Week ' + week + ' - ' + theme.name + '</h3>';
         html += '<span class="vv-week-badge">' + theme.focus + '</span>';
         html += '</div>';
-        
+
         html += '<div class="vv-week-content">';
-        
+
         // Generate workouts for the week using improved algorithm
         var weekPlan = generateWeekWorkouts(week);
-        var weekStats = { 
-            workouts: 0, 
-            totalMinutes: 0, 
-            zone1Minutes: 0, 
+        var weekStats = {
+            weekNumber: week,
+            workouts: 0,
+            totalMinutes: 0,
+            zone1Minutes: 0,
             zone3Minutes: 0,
             thresholdMinutes: 0,
-            tss: 0 
+            tss: 0
         };
-        
+
         var dayNames = ['Maandag', 'Dinsdag', 'Woensdag', 'Donderdag', 'Vrijdag', 'Zaterdag', 'Zondag'];
-        
-        dayNames.forEach(function(day, index) {
+
+        dayNames.forEach(function(day) {
             var workout = weekPlan[day];
             if (workout) {
                 html += createWorkoutCard(day, workout);
+                var duration = typeof workout.duration === 'number' ? workout.duration : 0;
                 weekStats.workouts++;
-                weekStats.totalMinutes += workout.duration;
+                weekStats.totalMinutes += duration;
                 weekStats.tss += workout.tss || 0;
-                
-                if (workout.zone === 1) {
-                    weekStats.zone1Minutes += workout.duration;
+
+                var distribution = workout.intensityDistribution || {};
+                if (typeof distribution.zone1 === 'number') {
+                    weekStats.zone1Minutes += distribution.zone1;
+                } else if (workout.zone === 1) {
+                    weekStats.zone1Minutes += duration;
+                }
+
+                if (typeof distribution.zone3 === 'number') {
+                    weekStats.zone3Minutes += distribution.zone3;
                 } else if (workout.zone === 3) {
-                    weekStats.zone3Minutes += workout.duration;
+                    weekStats.zone3Minutes += duration;
+                }
+
+                if (typeof distribution.threshold === 'number') {
+                    weekStats.thresholdMinutes += distribution.threshold;
                 } else if (workout.zone === 'threshold') {
-                    weekStats.thresholdMinutes += workout.duration;
+                    weekStats.thresholdMinutes += duration;
                 }
             } else {
                 html += createRestDay(day);
             }
         });
-        
+
         // Improved polarized summary with visual bar
         var zone1Percent = weekStats.totalMinutes > 0 ? Math.round((weekStats.zone1Minutes / weekStats.totalMinutes) * 100) : 0;
         var zone3Percent = weekStats.totalMinutes > 0 ? Math.round((weekStats.zone3Minutes / weekStats.totalMinutes) * 100) : 0;
         var thresholdPercent = weekStats.totalMinutes > 0 ? Math.round((weekStats.thresholdMinutes / weekStats.totalMinutes) * 100) : 0;
-        
+
+        var zone1MinutesDisplay = Math.round(weekStats.zone1Minutes);
+        var zone3MinutesDisplay = Math.round(weekStats.zone3Minutes);
+        var thresholdMinutesDisplay = Math.round(weekStats.thresholdMinutes);
+
         html += '<div class="vv-polarized-summary">';
         html += '<h5>📊 Gepolariseerde Verdeling Week ' + week + '</h5>';
         html += '<div class="vv-polarized-bar">';
         if (zone1Percent > 0) {
             html += '<div class="vv-zone1-bar" style="width: ' + zone1Percent + '%;">Z1: ' + zone1Percent + '%</div>';
         }
+        if (thresholdPercent > 0) {
+            html += '<div class="vv-threshold-bar" style="width: ' + thresholdPercent + '%;">TH: ' + thresholdPercent + '%</div>';
+        }
         if (zone3Percent > 0) {
             html += '<div class="vv-zone3-bar" style="width: ' + zone3Percent + '%;">Z3: ' + zone3Percent + '%</div>';
         }
         html += '</div>';
-        html += '<p><strong>Zone 1:</strong> ' + weekStats.zone1Minutes + ' min (' + zone1Percent + '%) | ';
-        html += '<strong>Zone 3:</strong> ' + weekStats.zone3Minutes + ' min (' + zone3Percent + '%)';
+        html += '<p><strong>Zone 1:</strong> ' + zone1MinutesDisplay + ' min (' + zone1Percent + '%) | ';
+        html += '<strong>Zone 3:</strong> ' + zone3MinutesDisplay + ' min (' + zone3Percent + '%)';
         if (thresholdPercent > 0) {
-            html += ' | <strong>Threshold:</strong> ' + weekStats.thresholdMinutes + ' min (' + thresholdPercent + '%)';
+            html += ' | <strong>Threshold:</strong> ' + thresholdMinutesDisplay + ' min (' + thresholdPercent + '%)';
         }
         html += '</p>';
         html += '</div>';
-        
+
         // Week summary with accurate metrics
         html += '<div class="vv-week-summary">';
         html += '<h4>Week ' + week + ' Samenvatting</h4>';
@@ -1285,15 +1381,97 @@
         html += '<div class="vv-stat"><div class="vv-stat-value">' + Math.round(weekStats.totalMinutes / 60 * 10) / 10 + 'u</div><div class="vv-stat-label">Totale tijd</div></div>';
         html += '<div class="vv-stat"><div class="vv-stat-value">' + zone1Percent + '%</div><div class="vv-stat-label">Zone 1</div></div>';
         html += '<div class="vv-stat"><div class="vv-stat-value">' + zone3Percent + '%</div><div class="vv-stat-label">Zone 3</div></div>';
-        html += '<div class="vv-stat"><div class="vv-stat-value">' + weekStats.tss + '</div><div class="vv-stat-label">TSS</div></div>';
+        if (thresholdPercent > 0) {
+            html += '<div class="vv-stat"><div class="vv-stat-value">' + thresholdPercent + '%</div><div class="vv-stat-label">Threshold</div></div>';
+        }
+        html += '<div class="vv-stat"><div class="vv-stat-value">' + Math.round(weekStats.tss) + '</div><div class="vv-stat-label">TSS</div></div>';
         html += '</div>';
         html += '</div>';
-        
+
         html += '</div></div>';
-        
+
+        return {
+            html: html,
+            stats: {
+                weekNumber: weekStats.weekNumber,
+                workouts: weekStats.workouts,
+                totalMinutes: weekStats.totalMinutes,
+                zone1Minutes: weekStats.zone1Minutes,
+                zone3Minutes: weekStats.zone3Minutes,
+                thresholdMinutes: weekStats.thresholdMinutes,
+                tss: Math.round(weekStats.tss)
+            }
+        };
+    }
+
+    function renderOverallSummary(weekStatsArray) {
+        if (!weekStatsArray || weekStatsArray.length === 0) {
+            return '';
+        }
+
+        var totals = weekStatsArray.reduce(function(acc, stats) {
+            acc.totalMinutes += stats.totalMinutes || 0;
+            acc.zone1Minutes += stats.zone1Minutes || 0;
+            acc.zone3Minutes += stats.zone3Minutes || 0;
+            acc.thresholdMinutes += stats.thresholdMinutes || 0;
+            acc.tss += stats.tss || 0;
+            acc.workouts += stats.workouts || 0;
+            return acc;
+        }, { totalMinutes: 0, zone1Minutes: 0, zone3Minutes: 0, thresholdMinutes: 0, tss: 0, workouts: 0 });
+
+        var totalHours = totals.totalMinutes / 60;
+        var avgWeeklyHours = weekStatsArray.length > 0 ? totals.totalMinutes / weekStatsArray.length / 60 : 0;
+        var avgWeeklyTss = weekStatsArray.length > 0 ? totals.tss / weekStatsArray.length : 0;
+
+        var zone1Percent = totals.totalMinutes > 0 ? Math.round((totals.zone1Minutes / totals.totalMinutes) * 100) : 0;
+        var zone3Percent = totals.totalMinutes > 0 ? Math.round((totals.zone3Minutes / totals.totalMinutes) * 100) : 0;
+        var thresholdPercent = totals.totalMinutes > 0 ? Math.round((totals.thresholdMinutes / totals.totalMinutes) * 100) : 0;
+        var highIntensityPercent = Math.min(zone3Percent + thresholdPercent, 100);
+
+        var balanceIsHealthy = zone1Percent >= 75 && highIntensityPercent <= 25;
+        var balanceClass = balanceIsHealthy ? 'positive' : 'warning';
+        var balanceMessage = balanceIsHealthy
+            ? '✅ 80/20 balans bevestigd: ' + zone1Percent + '% lage intensiteit vs ' + highIntensityPercent + '% hoog (Z3 ' + zone3Percent + '%, Threshold ' + thresholdPercent + '%)'
+            : '⚠️ Intensiteitsbalans bewaken: ' + zone1Percent + '% lage intensiteit vs ' + highIntensityPercent + '% hoog (Z3 ' + zone3Percent + '%, Threshold ' + thresholdPercent + '%). Overweeg extra herstel als hoog >25%.';
+
+        var html = '<div class="vv-overall-summary">';
+        html += '<h3>🧠 Overzicht 6-Weekse Belasting</h3>';
+        html += '<div class="vv-week-stats">';
+        html += '<div class="vv-stat"><div class="vv-stat-value">' + Math.round(totals.workouts) + '</div><div class="vv-stat-label">Workouts</div></div>';
+        html += '<div class="vv-stat"><div class="vv-stat-value">' + (Math.round(totalHours * 10) / 10) + 'u</div><div class="vv-stat-label">Totale tijd</div></div>';
+        html += '<div class="vv-stat"><div class="vv-stat-value">' + (Math.round(avgWeeklyHours * 10) / 10) + 'u</div><div class="vv-stat-label">Gem. per week</div></div>';
+        html += '<div class="vv-stat"><div class="vv-stat-value">' + totals.tss + '</div><div class="vv-stat-label">Totaal TSS</div></div>';
+        html += '<div class="vv-stat"><div class="vv-stat-value">' + Math.round(avgWeeklyTss) + '</div><div class="vv-stat-label">Gem. TSS/week</div></div>';
+        html += '<div class="vv-stat"><div class="vv-stat-value">' + zone1Percent + '%</div><div class="vv-stat-label">Zone 1 aandeel</div></div>';
+        html += '<div class="vv-stat"><div class="vv-stat-value">' + highIntensityPercent + '%</div><div class="vv-stat-label">Hoog (Z3+TH)</div></div>';
+        html += '</div>';
+
+        html += '<div class="vv-polarized-summary overall">';
+        html += '<h5>📊 Totale Intensiteitsbalans (6 weken)</h5>';
+        html += '<div class="vv-polarized-bar">';
+        if (zone1Percent > 0) {
+            html += '<div class="vv-zone1-bar" style="width: ' + zone1Percent + '%;">Z1: ' + zone1Percent + '%</div>';
+        }
+        if (thresholdPercent > 0) {
+            html += '<div class="vv-threshold-bar" style="width: ' + thresholdPercent + '%;">TH: ' + thresholdPercent + '%</div>';
+        }
+        if (zone3Percent > 0) {
+            html += '<div class="vv-zone3-bar" style="width: ' + zone3Percent + '%;">Z3: ' + zone3Percent + '%</div>';
+        }
+        html += '</div>';
+        html += '<p><strong>Zone 1:</strong> ' + Math.round(totals.zone1Minutes) + ' min';
+        if (thresholdPercent > 0) {
+            html += ' | <strong>Threshold:</strong> ' + Math.round(totals.thresholdMinutes) + ' min';
+        }
+        html += ' | <strong>Zone 3:</strong> ' + Math.round(totals.zone3Minutes) + ' min</p>';
+        html += '</div>';
+
+        html += '<p class="vv-balance-tag ' + balanceClass + '">' + balanceMessage + '</p>';
+        html += '</div>';
+
         return html;
     }
-    
+
     function generateWeekWorkouts(week) {
         var workouts = {};
         var trainingDays = getTrainingDays();
@@ -1323,48 +1501,99 @@
             // Adaptation week - 1 moderate session
             if (dayCount >= 1 && days[0]) workouts[days[0]] = getZone1Workout('endurance');
             if (dayCount >= 2 && days[1]) workouts[days[1]] = getVO2MaxWorkout(1, 'intro');
-            if (dayCount >= 3 && days[2]) workouts[days[2]] = getZone1Workout('recovery');
-            if (dayCount >= 4 && days[3]) workouts[days[3]] = getZone1Workout('endurance');
+            if (dayCount >= 3 && days[2]) {
+                workouts[days[2]] = dayCount === 3 ? getZone1Workout('long') : getZone1Workout('recovery');
+            }
+            if (dayCount >= 4 && days[3]) {
+                workouts[days[3]] = dayCount === 4 ? getZone1Workout('long') : getZone1Workout('endurance');
+            }
             if (dayCount >= 5 && days[4]) workouts[days[4]] = getZone1Workout('long');
             if (dayCount >= 6 && days[5]) workouts[days[5]] = getZone1Workout('recovery');
         } else if (week === 2) {
             // Volume build - 1 hard session only
             if (dayCount >= 1 && days[0]) workouts[days[0]] = getZone1Workout('endurance');
             if (dayCount >= 2 && days[1]) workouts[days[1]] = getVO2MaxWorkout(2, 'standard');
-            if (dayCount >= 3 && days[2]) workouts[days[2]] = getZone1Workout('recovery');
-            if (dayCount >= 4 && days[3]) workouts[days[3]] = getZone1Workout('endurance');
+            if (dayCount >= 3 && days[2]) {
+                workouts[days[2]] = dayCount === 3 ? getZone1Workout('long') : getZone1Workout('recovery');
+            }
+            if (dayCount >= 4 && days[3]) {
+                workouts[days[3]] = dayCount === 4 ? getZone1Workout('long') : getZone1Workout('endurance');
+            }
             if (dayCount >= 5 && days[4]) workouts[days[4]] = getZone1Workout('long');
             if (dayCount >= 6 && days[5]) workouts[days[5]] = getZone1Workout('recovery');
         } else if (week === 3) {
             // Peak loading - 1 hard + 1 threshold (max)
             if (dayCount >= 1 && days[0]) workouts[days[0]] = getZone1Workout('endurance');
             if (dayCount >= 2 && days[1]) workouts[days[1]] = getVO2MaxWorkout(3, 'peak');
-            if (dayCount >= 3 && days[2]) workouts[days[2]] = getZone1Workout('recovery');
-            if (dayCount >= 4 && days[3]) workouts[days[3]] = (dayCount >= 6 && globalLevel !== 'beginner') ? getThresholdWorkout(3, 'short') : getZone1Workout('endurance');
+            if (dayCount >= 3 && days[2]) {
+                workouts[days[2]] = dayCount === 3 ? getZone1Workout('long') : getZone1Workout('recovery');
+            }
+            if (dayCount >= 4 && days[3]) {
+                if (dayCount >= 6 && globalLevel !== 'beginner') {
+                    workouts[days[3]] = getThresholdWorkout(3, 'short');
+                } else if (dayCount === 4) {
+                    workouts[days[3]] = getZone1Workout('long');
+                } else {
+                    workouts[days[3]] = getZone1Workout('endurance');
+                }
+            }
             if (dayCount >= 5 && days[4]) workouts[days[4]] = getZone1Workout('long');
             if (dayCount >= 6 && days[5]) workouts[days[5]] = getZone1Workout('recovery');
         } else if (week === 4) {
             // Recovery week - alleen Zone 1
             if (dayCount >= 1 && days[0]) workouts[days[0]] = getZone1Workout('endurance');
             if (dayCount >= 2 && days[1]) workouts[days[1]] = getZone1Workout('recovery');
-            if (dayCount >= 3 && days[2]) workouts[days[2]] = getZone1Workout('endurance');
+            if (dayCount >= 3 && days[2]) {
+                workouts[days[2]] = dayCount === 3 ? getZone1Workout('medium') : getZone1Workout('endurance');
+            }
             if (dayCount >= 4 && days[3]) workouts[days[3]] = getZone1Workout('recovery');
             if (dayCount >= 5 && days[4]) workouts[days[4]] = getZone1Workout('medium');
         } else if (week === 5) {
             // Peak performance - 1 quality session
             if (dayCount >= 1 && days[0]) workouts[days[0]] = getZone1Workout('endurance');
             if (dayCount >= 2 && days[1]) workouts[days[1]] = getVO2MaxWorkout(5, 'sharpener');
-            if (dayCount >= 3 && days[2]) workouts[days[2]] = getZone1Workout('recovery');
-            if (dayCount >= 4 && days[3]) workouts[days[3]] = getZone1Workout('endurance');
+            if (dayCount >= 3 && days[2]) {
+                workouts[days[2]] = dayCount === 3 ? getZone1Workout('long') : getZone1Workout('recovery');
+            }
+            if (dayCount >= 4 && days[3]) {
+                workouts[days[3]] = dayCount === 4 ? getZone1Workout('long') : getZone1Workout('endurance');
+            }
             if (dayCount >= 5 && days[4]) workouts[days[4]] = getZone1Workout('long');
             if (dayCount >= 6 && days[5]) workouts[days[5]] = getZone1Workout('recovery');
         } else if (week === 6) {
-            // Test week with minimal intensity
-            if (dayCount >= 1 && days[0]) workouts[days[0]] = getZone1Workout('endurance');
-            if (dayCount >= 2 && days[1]) workouts[days[1]] = getVO2MaxWorkout(6, 'opener');
-            if (dayCount >= 3 && days[2]) workouts[days[2]] = getZone1Workout('recovery');
-            if (dayCount >= 4 && days[3]) workouts[days[3]] = getFTPTestWorkout();
-            if (dayCount >= 5 && days[4]) workouts[days[4]] = getZone1Workout('recovery');
+            // Test week with minimal intensity and gegarandeerde FTP-test
+            if (dayCount >= 1 && days[0]) {
+                workouts[days[0]] = getZone1Workout('endurance');
+            }
+            if (dayCount >= 2 && days[1]) {
+                workouts[days[1]] = dayCount <= 3 ? getPrimingOpenerWorkout() : getVO2MaxWorkout(6, 'opener');
+            }
+            if (dayCount >= 3 && days[2] && dayCount > 3) {
+                workouts[days[2]] = getZone1Workout('recovery');
+            }
+
+            var testIndex = Math.min(dayCount - 1, 3);
+            if (testIndex >= 0) {
+                var testDay = days[testIndex];
+                if (testDay) {
+                    workouts[testDay] = getFTPTestWorkout();
+                }
+
+                var beforeIndex = testIndex - 1;
+                if (beforeIndex >= 0) {
+                    var beforeDay = days[beforeIndex];
+                    if (beforeDay) {
+                        workouts[beforeDay] = dayCount <= 3 ? getPrimingOpenerWorkout() : getZone1Workout('recovery');
+                    }
+                }
+
+                if (testIndex + 1 < dayCount) {
+                    var afterDay = days[testIndex + 1];
+                    if (afterDay) {
+                        workouts[afterDay] = getZone1Workout('recovery');
+                    }
+                }
+            }
         }
         
         return workouts;
@@ -1380,43 +1609,93 @@
         if (week === 1) {
             if (dayCount >= 1 && days[0]) workouts[days[0]] = getZone1ClimbingWorkout('endurance');
             if (dayCount >= 2 && days[1]) workouts[days[1]] = getClimbingVO2MaxWorkout(1);
-            if (dayCount >= 3 && days[2]) workouts[days[2]] = getZone1ClimbingWorkout('recovery');
-            if (dayCount >= 4 && days[3]) workouts[days[3]] = getZone1ClimbingWorkout('endurance');
+            if (dayCount >= 3 && days[2]) {
+                workouts[days[2]] = dayCount === 3 ? getZone1ClimbingWorkout('long') : getZone1ClimbingWorkout('recovery');
+            }
+            if (dayCount >= 4 && days[3]) {
+                workouts[days[3]] = dayCount === 4 ? getZone1ClimbingWorkout('long') : getZone1ClimbingWorkout('endurance');
+            }
             if (dayCount >= 5 && days[4]) workouts[days[4]] = getZone1ClimbingWorkout('long');
             if (dayCount >= 6 && days[5]) workouts[days[5]] = getZone1ClimbingWorkout('recovery');
         } else if (week === 2) {
             if (dayCount >= 1 && days[0]) workouts[days[0]] = getZone1ClimbingWorkout('endurance');
             if (dayCount >= 2 && days[1]) workouts[days[1]] = getClimbingVO2MaxWorkout(2);
-            if (dayCount >= 3 && days[2]) workouts[days[2]] = getZone1ClimbingWorkout('recovery');
-            if (dayCount >= 4 && days[3]) workouts[days[3]] = getZone1ClimbingWorkout('endurance');
+            if (dayCount >= 3 && days[2]) {
+                workouts[days[2]] = dayCount === 3 ? getZone1ClimbingWorkout('long') : getZone1ClimbingWorkout('recovery');
+            }
+            if (dayCount >= 4 && days[3]) {
+                workouts[days[3]] = dayCount === 4 ? getZone1ClimbingWorkout('long') : getZone1ClimbingWorkout('endurance');
+            }
             if (dayCount >= 5 && days[4]) workouts[days[4]] = getZone1ClimbingWorkout('long');
             if (dayCount >= 6 && days[5]) workouts[days[5]] = getZone1ClimbingWorkout('recovery');
         } else if (week === 3) {
             if (dayCount >= 1 && days[0]) workouts[days[0]] = getZone1ClimbingWorkout('endurance');
             if (dayCount >= 2 && days[1]) workouts[days[1]] = getClimbingVO2MaxWorkout(3);
-            if (dayCount >= 3 && days[2]) workouts[days[2]] = getZone1ClimbingWorkout('recovery');
-            if (dayCount >= 4 && days[3]) workouts[days[3]] = (dayCount >= 6 && globalLevel !== 'beginner') ? getClimbingThresholdWorkout(3) : getZone1ClimbingWorkout('endurance');
+            if (dayCount >= 3 && days[2]) {
+                workouts[days[2]] = dayCount === 3 ? getZone1ClimbingWorkout('long') : getZone1ClimbingWorkout('recovery');
+            }
+            if (dayCount >= 4 && days[3]) {
+                if (dayCount >= 6 && globalLevel !== 'beginner') {
+                    workouts[days[3]] = getClimbingThresholdWorkout(3);
+                } else if (dayCount === 4) {
+                    workouts[days[3]] = getZone1ClimbingWorkout('long');
+                } else {
+                    workouts[days[3]] = getZone1ClimbingWorkout('endurance');
+                }
+            }
             if (dayCount >= 5 && days[4]) workouts[days[4]] = getZone1ClimbingWorkout('long');
             if (dayCount >= 6 && days[5]) workouts[days[5]] = getZone1ClimbingWorkout('recovery');
         } else if (week === 4) {
             // Recovery week
             if (dayCount >= 1 && days[0]) workouts[days[0]] = getZone1ClimbingWorkout('endurance');
             if (dayCount >= 2 && days[1]) workouts[days[1]] = getZone1ClimbingWorkout('recovery');
-            if (dayCount >= 3 && days[2]) workouts[days[2]] = getZone1ClimbingWorkout('endurance');
+            if (dayCount >= 3 && days[2]) {
+                workouts[days[2]] = dayCount === 3 ? getZone1ClimbingWorkout('medium') : getZone1ClimbingWorkout('endurance');
+            }
             if (dayCount >= 4 && days[3]) workouts[days[3]] = getZone1ClimbingWorkout('recovery');
         } else if (week === 5) {
             if (dayCount >= 1 && days[0]) workouts[days[0]] = getZone1ClimbingWorkout('endurance');
             if (dayCount >= 2 && days[1]) workouts[days[1]] = getClimbingVO2MaxWorkout(5);
-            if (dayCount >= 3 && days[2]) workouts[days[2]] = getZone1ClimbingWorkout('recovery');
-            if (dayCount >= 4 && days[3]) workouts[days[3]] = getZone1ClimbingWorkout('endurance');
+            if (dayCount >= 3 && days[2]) {
+                workouts[days[2]] = dayCount === 3 ? getZone1ClimbingWorkout('long') : getZone1ClimbingWorkout('recovery');
+            }
+            if (dayCount >= 4 && days[3]) {
+                workouts[days[3]] = dayCount === 4 ? getZone1ClimbingWorkout('long') : getZone1ClimbingWorkout('endurance');
+            }
             if (dayCount >= 5 && days[4]) workouts[days[4]] = getZone1ClimbingWorkout('long');
         } else if (week === 6) {
             if (dayCount >= 1 && days[0]) workouts[days[0]] = getZone1ClimbingWorkout('endurance');
-            if (dayCount >= 2 && days[1]) workouts[days[1]] = getVO2MaxWorkout(6, 'opener');
-            if (dayCount >= 3 && days[2]) workouts[days[2]] = getZone1ClimbingWorkout('recovery');
-            if (dayCount >= 4 && days[3]) workouts[days[3]] = getAlpeDuZwiftTestWorkout();
+            if (dayCount >= 2 && days[1]) {
+                workouts[days[1]] = dayCount <= 3 ? getPrimingOpenerWorkout('climbing') : getVO2MaxWorkout(6, 'opener');
+            }
+            if (dayCount >= 3 && days[2] && dayCount > 3) {
+                workouts[days[2]] = getZone1ClimbingWorkout('recovery');
+            }
+
+            var climbTestIndex = Math.min(dayCount - 1, 3);
+            if (climbTestIndex >= 0) {
+                var climbTestDay = days[climbTestIndex];
+                if (climbTestDay) {
+                    workouts[climbTestDay] = getAlpeDuZwiftTestWorkout();
+                }
+
+                var climbBeforeIndex = climbTestIndex - 1;
+                if (climbBeforeIndex >= 0) {
+                    var climbBeforeDay = days[climbBeforeIndex];
+                    if (climbBeforeDay) {
+                        workouts[climbBeforeDay] = dayCount <= 3 ? getPrimingOpenerWorkout('climbing') : getZone1ClimbingWorkout('recovery');
+                    }
+                }
+
+                if (climbTestIndex + 1 < dayCount) {
+                    var climbAfterDay = days[climbTestIndex + 1];
+                    if (climbAfterDay) {
+                        workouts[climbAfterDay] = getZone1ClimbingWorkout('recovery');
+                    }
+                }
+            }
         }
-        
+
         return workouts;
     }
     
@@ -1429,21 +1708,31 @@
         if (week === 1) {
             if (dayCount >= 1 && days[0]) workouts[days[0]] = getZone1Workout('endurance');
             if (dayCount >= 2 && days[1]) workouts[days[1]] = getRacingVO2MaxWorkout(1);
-            if (dayCount >= 3 && days[2]) workouts[days[2]] = getZone1Workout('recovery');
-            if (dayCount >= 4 && days[3]) workouts[days[3]] = getZone1Workout('endurance');
+            if (dayCount >= 3 && days[2]) {
+                workouts[days[2]] = dayCount === 3 ? getZone1Workout('long') : getZone1Workout('recovery');
+            }
+            if (dayCount >= 4 && days[3]) {
+                workouts[days[3]] = dayCount === 4 ? getZone1Workout('long') : getZone1Workout('endurance');
+            }
             if (dayCount >= 5 && days[4]) workouts[days[4]] = getZone1Workout('long');
             if (dayCount >= 6 && days[5]) workouts[days[5]] = getZone1Workout('recovery');
         } else if (week === 2) {
             if (dayCount >= 1 && days[0]) workouts[days[0]] = getZone1Workout('endurance');
             if (dayCount >= 2 && days[1]) workouts[days[1]] = getRacingVO2MaxWorkout(2);
-            if (dayCount >= 3 && days[2]) workouts[days[2]] = getZone1Workout('recovery');
-            if (dayCount >= 4 && days[3]) workouts[days[3]] = getZone1Workout('endurance');
+            if (dayCount >= 3 && days[2]) {
+                workouts[days[2]] = dayCount === 3 ? getZone1Workout('long') : getZone1Workout('recovery');
+            }
+            if (dayCount >= 4 && days[3]) {
+                workouts[days[3]] = dayCount === 4 ? getZone1Workout('long') : getZone1Workout('endurance');
+            }
             if (dayCount >= 5 && days[4]) workouts[days[4]] = getZone1Workout('long');
             if (dayCount >= 6 && days[5]) workouts[days[5]] = getZone1Workout('recovery');
         } else if (week === 3) {
             if (dayCount >= 1 && days[0]) workouts[days[0]] = getZone1Workout('endurance');
             if (dayCount >= 2 && days[1]) workouts[days[1]] = getRacingVO2MaxWorkout(3);
-            if (dayCount >= 3 && days[2]) workouts[days[2]] = getZone1Workout('recovery');
+            if (dayCount >= 3 && days[2]) {
+                workouts[days[2]] = dayCount === 3 ? getZone1Workout('long') : getZone1Workout('recovery');
+            }
             // Beginners krijgen geen tweede harde sessie in week 3
             if (dayCount >= 4 && days[3]) workouts[days[3]] = globalLevel === 'beginner' ? getZone1Workout('long') : getSprintAnaerobicWorkout(3);
             if (dayCount >= 5 && days[4]) workouts[days[4]] = getZone1Workout('long');
@@ -1457,16 +1746,46 @@
         } else if (week === 5) {
             if (dayCount >= 1 && days[0]) workouts[days[0]] = getZone1Workout('endurance');
             if (dayCount >= 2 && days[1]) workouts[days[1]] = getRacingVO2MaxWorkout(5);
-            if (dayCount >= 3 && days[2]) workouts[days[2]] = getZone1Workout('recovery');
-            if (dayCount >= 4 && days[3]) workouts[days[3]] = getZone1Workout('endurance');
+            if (dayCount >= 3 && days[2]) {
+                workouts[days[2]] = dayCount === 3 ? getZone1Workout('long') : getZone1Workout('recovery');
+            }
+            if (dayCount >= 4 && days[3]) {
+                workouts[days[3]] = dayCount === 4 ? getZone1Workout('long') : getZone1Workout('endurance');
+            }
             if (dayCount >= 5 && days[4]) workouts[days[4]] = getZone1Workout('long');
         } else if (week === 6) {
             if (dayCount >= 1 && days[0]) workouts[days[0]] = getZone1Workout('endurance');
-            if (dayCount >= 2 && days[1]) workouts[days[1]] = getVO2MaxWorkout(6, 'opener');
-            if (dayCount >= 3 && days[2]) workouts[days[2]] = getZone1Workout('recovery');
-            if (dayCount >= 4 && days[3]) workouts[days[3]] = getTargetRaceWorkout();
+            if (dayCount >= 2 && days[1]) {
+                workouts[days[1]] = dayCount <= 3 ? getPrimingOpenerWorkout('racing') : getVO2MaxWorkout(6, 'opener');
+            }
+            if (dayCount >= 3 && days[2] && dayCount > 3) {
+                workouts[days[2]] = getZone1Workout('recovery');
+            }
+
+            var raceIndex = Math.min(dayCount - 1, 3);
+            if (raceIndex >= 0) {
+                var raceDay = days[raceIndex];
+                if (raceDay) {
+                    workouts[raceDay] = getTargetRaceWorkout();
+                }
+
+                var raceBeforeIndex = raceIndex - 1;
+                if (raceBeforeIndex >= 0) {
+                    var raceBeforeDay = days[raceBeforeIndex];
+                    if (raceBeforeDay) {
+                        workouts[raceBeforeDay] = dayCount <= 3 ? getPrimingOpenerWorkout('racing') : getZone1Workout('recovery');
+                    }
+                }
+
+                if (raceIndex + 1 < dayCount) {
+                    var raceAfterDay = days[raceIndex + 1];
+                    if (raceAfterDay) {
+                        workouts[raceAfterDay] = getZone1Workout('recovery');
+                    }
+                }
+            }
         }
-        
+
         return workouts;
     }
     
@@ -1479,8 +1798,12 @@
         if (week <= 3) {
             if (dayCount >= 1) workouts[days[0]] = getZone1Workout('endurance');
             if (dayCount >= 2) workouts[days[1]] = week % 2 === 1 ? getEnduranceVO2MaxWorkout(week) : getZone1Workout('endurance');
-            if (dayCount >= 3) workouts[days[2]] = getZone1Workout('recovery');
-            if (dayCount >= 4) workouts[days[3]] = getZone1Workout('endurance');
+            if (dayCount >= 3) {
+                workouts[days[2]] = dayCount === 3 ? getZone1Workout('long') : getZone1Workout('recovery');
+            }
+            if (dayCount >= 4) {
+                workouts[days[3]] = dayCount === 4 ? getZone1Workout('long') : getZone1Workout('endurance');
+            }
             if (dayCount >= 5) workouts[days[4]] = getZone1Workout('very_long');
             if (dayCount >= 6) workouts[days[5]] = getZone1Workout('recovery');
         } else if (week === 4) {
@@ -1488,13 +1811,51 @@
             for (var i = 0; i < Math.min(dayCount, 4); i++) {
                 workouts[days[i]] = getZone1Workout(i % 2 === 0 ? 'endurance' : 'recovery');
             }
-        } else {
-            // Final prep
+            if (dayCount === 3) {
+                workouts[days[2]] = getZone1Workout('medium');
+            }
+        } else if (week === 5) {
             if (dayCount >= 1) workouts[days[0]] = getZone1Workout('endurance');
-            if (dayCount >= 2) workouts[days[1]] = week === 5 ? getEnduranceVO2MaxWorkout(week) : getZone1Workout('recovery');
-            if (dayCount >= 3) workouts[days[2]] = getZone1Workout('recovery');
-            if (dayCount >= 4) workouts[days[3]] = week === 6 ? getGranFondoTestWorkout() : getZone1Workout('race_simulation');
+            if (dayCount >= 2) workouts[days[1]] = getEnduranceVO2MaxWorkout(week);
+            if (dayCount >= 3) {
+                workouts[days[2]] = dayCount === 3 ? getZone1Workout('very_long') : getZone1Workout('recovery');
+            }
+            if (dayCount >= 4) {
+                workouts[days[3]] = dayCount === 4 ? getZone1Workout('very_long') : getZone1Workout('race_simulation');
+            }
             if (dayCount >= 5) workouts[days[4]] = getZone1Workout('recovery');
+        } else {
+            // Week 6 finale met Gran Fondo test
+            if (dayCount >= 1) workouts[days[0]] = getZone1Workout('endurance');
+            if (dayCount >= 2) {
+                workouts[days[1]] = dayCount <= 3 ? getPrimingOpenerWorkout('endurance') : getZone1Workout('recovery');
+            }
+            if (dayCount >= 3 && dayCount > 3) {
+                workouts[days[2]] = getZone1Workout('recovery');
+            }
+
+            var fondoIndex = Math.min(dayCount - 1, 3);
+            if (fondoIndex >= 0) {
+                var fondoDay = days[fondoIndex];
+                if (fondoDay) {
+                    workouts[fondoDay] = getGranFondoTestWorkout();
+                }
+
+                var fondoBeforeIndex = fondoIndex - 1;
+                if (fondoBeforeIndex >= 0) {
+                    var fondoBeforeDay = days[fondoBeforeIndex];
+                    if (fondoBeforeDay) {
+                        workouts[fondoBeforeDay] = dayCount <= 3 ? getPrimingOpenerWorkout('endurance') : getZone1Workout('recovery');
+                    }
+                }
+
+                if (fondoIndex + 1 < dayCount) {
+                    var fondoAfterDay = days[fondoIndex + 1];
+                    if (fondoAfterDay) {
+                        workouts[fondoAfterDay] = getZone1Workout('recovery');
+                    }
+                }
+            }
         }
         
         return workouts;
@@ -1519,6 +1880,7 @@
                 zone: 1,
                 structure: 'Warming-up: 10min geleidelijk naar ' + zone1Recovery + 'W\nHoofdblok: ' + (duration-20) + 'min steady @ ' + zone1Recovery + 'W\nCooling-down: 10min uitrijden',
                 details: ['Netflix perfect!', 'Conversatie mogelijk', '1 ventilator laag', 'Hydratatie: 400ml/uur'],
+                intensityDistribution: { zone1: duration, zone3: 0, threshold: 0 },
                 tss: Math.round(duration * 0.42 * 0.42 * 100 / 60) // Realistic weighted TSS
             };
         } else if (type === 'endurance') {
@@ -1532,6 +1894,7 @@
                 zone: 1,
                 structure: 'Warming-up: 15min geleidelijk naar ' + zone1Easy + 'W\nHoofdblok: ' + (duration-25) + 'min @ ' + zone1Endurance + 'W\nCooling-down: 10min uitrijden',
                 details: ['Zwift group rides perfect', 'Praten mogelijk', 'Aerobe ontwikkeling', '500ml/uur drinken'],
+                intensityDistribution: { zone1: duration, zone3: 0, threshold: 0 },
                 tss: Math.round(duration * 0.50 * 0.50 * 100 / 60)
             };
         } else if (type === 'long') {
@@ -1545,6 +1908,7 @@
                 zone: 1,
                 structure: 'Warming-up: 20min naar ' + zone1Endurance + 'W\nHoofdblok: ' + (duration-35) + 'min steady power\nCooling-down: 15min uitrijden',
                 details: ['Voeding: 30-60g KH/uur', 'Mentale training', 'Fat adaptation', 'Break elke 45min'],
+                intensityDistribution: { zone1: duration, zone3: 0, threshold: 0 },
                 tss: Math.round(duration * 0.45 * 0.45 * 100 / 60)
             };
         } else if (type === 'very_long') {
@@ -1558,6 +1922,7 @@
                 zone: 1,
                 structure: 'Warming-up: 20min\nHoofdblok: ' + (duration-35) + 'min @ ' + zone1Easy + 'W\nCooling-down: 15min',
                 details: ['60-90g KH/uur', 'Electrolytes!', 'Position changes', '750ml/uur'],
+                intensityDistribution: { zone1: duration, zone3: 0, threshold: 0 },
                 tss: Math.round(duration * 0.48 * 0.48 * 100 / 60)
             };
         } else if (type === 'medium') {
@@ -1571,6 +1936,7 @@
                 zone: 1,
                 structure: 'Warming-up: 10min\nHoofdblok: ' + (duration-20) + 'min easy\nCooling-down: 10min',
                 details: ['Recovery focus', 'Easy spinning', 'Low stress', 'Active rest'],
+                intensityDistribution: { zone1: duration, zone3: 0, threshold: 0 },
                 tss: Math.round(duration * 0.62 * 0.62 * 100 / 60)
             };
         }
@@ -1586,52 +1952,80 @@
         var ftp105 = Math.round(globalFtp * 1.05);
         
         if (type === 'intro') {
+            var durationIntro = 75;
+            var thresholdIntroMinutes = 24;
             return {
                 name: 'Threshold Introductie',
                 description: '2×12min @ ' + ftp95 + 'W (95% FTP)',
-                duration: 75,
+                duration: durationIntro,
                 intensity: 'threshold',
                 emoji: '🎯',
                 zone: 'threshold',
                 structure: 'Warming-up: 20min met 3×2min @ 90% FTP\nInterval 1: 12min @ ' + ftp95 + 'W\nRust: 8min easy\nInterval 2: 12min @ ' + ftp95 + 'W\nCooling-down: 15min',
                 details: ['ERG mode aan', 'Steady breathing', 'Focus op vorm', 'Net onder FTP'],
-                tss: Math.round(75 * 0.85 * 0.85 * 100 / 60)
+                intensityDistribution: {
+                    zone1: Math.max(durationIntro - thresholdIntroMinutes, 0),
+                    zone3: 0,
+                    threshold: thresholdIntroMinutes
+                },
+                tss: Math.round(durationIntro * 0.85 * 0.85 * 100 / 60)
             };
         } else if (type === 'build') {
+            var durationBuild = 80;
+            var thresholdBuildMinutes = 30;
             return {
                 name: 'Threshold Opbouw',
                 description: '2×15min @ ' + ftp100 + 'W (100% FTP)',
-                duration: 80,
+                duration: durationBuild,
                 intensity: 'threshold',
                 emoji: '💪',
                 zone: 'threshold',
                 structure: 'Warming-up: 20min met 3×3min @ 90% FTP\nInterval 1: 15min @ ' + ftp100 + 'W\nRust: 10min easy\nInterval 2: 15min @ ' + ftp100 + 'W\nCooling-down: 15min',
                 details: ['Exact FTP power', 'Controlled breathing', 'Mental focus', 'Lactate steady state'],
-                tss: Math.round(80 * 0.90 * 0.90 * 100 / 60)
+                intensityDistribution: {
+                    zone1: Math.max(durationBuild - thresholdBuildMinutes, 0),
+                    zone3: 0,
+                    threshold: thresholdBuildMinutes
+                },
+                tss: Math.round(durationBuild * 0.90 * 0.90 * 100 / 60)
             };
         } else if (type === 'peak') {
+            var durationPeak = 85;
+            var thresholdPeakMinutes = 35;
             return {
                 name: 'Threshold Peak',
                 description: '1×25min @ ' + ftp100 + 'W + 1×10min @ ' + ftp105 + 'W',
-                duration: 85,
+                duration: durationPeak,
                 intensity: 'threshold',
                 emoji: '🔥',
                 zone: 'threshold',
                 structure: 'Warming-up: 20min progressief\nInterval 1: 25min @ ' + ftp100 + 'W\nRust: 8min\nInterval 2: 10min @ ' + ftp105 + 'W\nCooling-down: 15min',
                 details: ['Peak threshold power', 'Progressive overload', 'Mental toughness', 'Fans op max!'],
-                tss: Math.round(85 * 0.95 * 0.95 * 100 / 60)
+                intensityDistribution: {
+                    zone1: Math.max(durationPeak - thresholdPeakMinutes, 0),
+                    zone3: 0,
+                    threshold: thresholdPeakMinutes
+                },
+                tss: Math.round(durationPeak * 0.95 * 0.95 * 100 / 60)
             };
         } else if (type === 'short') {
+            var durationShort = 60;
+            var thresholdShortMinutes = 16;
             return {
                 name: 'Threshold Short',
                 description: '2×8min @ ' + ftp100 + 'W (100% FTP)',
-                duration: 60,
+                duration: durationShort,
                 intensity: 'threshold',
                 emoji: '⚡',
                 zone: 'threshold',
                 structure: 'Warming-up: 15min\n2× (8min @ ' + ftp100 + 'W, 6min recovery)\nCooling-down: 15min',
                 details: ['Korte threshold blokken', 'Quick recovery', 'High quality work', 'Maintain power'],
-                tss: Math.round(60 * 0.75 * 0.75 * 100 / 60)
+                intensityDistribution: {
+                    zone1: Math.max(durationShort - thresholdShortMinutes, 0),
+                    zone3: 0,
+                    threshold: thresholdShortMinutes
+                },
+                tss: Math.round(durationShort * 0.75 * 0.75 * 100 / 60)
             };
         }
         
@@ -1660,7 +2054,9 @@
         }
         
         var totalDuration = 60 + reps * 8; // Base + intervals + recovery
-        
+        var highIntensityMinutes = reps * 3;
+        var zone1Minutes = Math.max(totalDuration - highIntensityMinutes, 0);
+
         return {
             name: 'Zone 3 VO₂max Intervals',
             description: reps + '×3min @ ' + vo2watts + 'W (115% FTP)',
@@ -1670,44 +2066,89 @@
             zone: 3,
             structure: 'Warming-up: 20min met 3×90sec @ 100% FTP\n' + reps + '× (3min @ ' + vo2watts + 'W, 3min recovery)\nCooling-down: 15min',
             details: ['ERG mode aan', 'Maximale aerobe power', 'Controlled breathing', 'Fans op maximum!'],
-            tss: Math.round(totalDuration * 0.75 * 0.75 * 100 / 60) // Adjusted for intensity distribution
+            intensityDistribution: { zone1: zone1Minutes, zone3: highIntensityMinutes, threshold: 0 },
+            tss: Math.round(totalDuration * 0.75 * 0.75 * 100 / 60) // Aangepast voor intensiteitsverdeling
         };
     }
-    
+
+    function getPrimingOpenerWorkout(context) {
+        var surgeWatts = Math.round(globalFtp * 1.10);
+        var duration = 45;
+        var primes = 3;
+        var zone1Minutes = duration - primes;
+        var detailSets = {
+            default: ['Activeer zonder vermoeidheid', 'Cadans 90-95rpm', 'Focus op ademhaling', 'Stop ruim voor uitputting'],
+            climbing: ['Seated primes 75-80rpm', 'Gebruik klimpositie', 'Voel gelijkmatige druk', 'Geen volle bak sprint'],
+            racing: ['Versnellingen uit de bocht', 'Hoge cadans 100+rpm', 'Mentale race focus', 'Kort maar gecontroleerd'],
+            endurance: ['Openers voor lange rit', 'Cadans variëren 85-95rpm', 'Blijf relaxed', 'Hydratatie licht houden']
+        };
+        var nameMap = {
+            default: 'Priming Opener',
+            climbing: 'Klim Prime Opener',
+            racing: 'Race Prime Opener',
+            endurance: 'Endurance Prime Opener'
+        };
+        var contextKey = context || 'default';
+        var workoutName = nameMap[contextKey] || nameMap.default;
+        var detailList = detailSets[contextKey] || detailSets.default;
+        var structure = 'Warming-up: 15min soepel\n' + primes + '× (1min @ ' + surgeWatts + 'W, 4min zone 1)\nCooling-down: 10min losrijden';
+        var tss = Math.round(((zone1Minutes / 60) * Math.pow(0.58, 2) + (primes / 60) * Math.pow(1.1, 2)) * 100);
+
+        return {
+            name: workoutName,
+            description: 'Korte opener met ' + primes + '×1min @ ' + surgeWatts + 'W (110% FTP)',
+            duration: duration,
+            intensity: 'hard',
+            emoji: '🚀',
+            zone: 3,
+            structure: structure,
+            details: detailList,
+            intensityDistribution: { zone1: zone1Minutes, zone3: primes, threshold: 0 },
+            tss: tss
+        };
+    }
+
     // Add more specific workout functions...
     function getClimbingVO2MaxWorkout(week) {
         var watts = Math.round(globalFtp * 1.12);
         var reps = Math.min(4 + week, 7);
-        
+        var totalMinutes = 75;
+        var highIntensityMinutes = reps * 4;
+        var zone1Minutes = Math.max(totalMinutes - highIntensityMinutes, 0);
+
         return {
             name: 'Zone 3 Klim VO₂max',
             description: reps + '×4min @ ' + watts + 'W (seated, 60rpm)',
-            duration: 75,
+            duration: totalMinutes,
             intensity: 'hard',
             emoji: '⛰️',
             zone: 3,
             structure: 'Warming-up: 20min\n' + reps + '× (4min @ ' + watts + 'W seated, 3min recovery)\nCooling-down: 15min',
             details: ['Seated position only', '60-65rpm target', 'Simulate steep climbs', 'Power-to-weight focus'],
+            intensityDistribution: { zone1: zone1Minutes, zone3: highIntensityMinutes, threshold: 0 },
             tss: Math.round(75 * 0.78 * 0.78 * 100 / 60)
         };
     }
-    
+
     function getClimbingThresholdWorkout(week) {
         var watts = Math.round(globalFtp * 0.98);
-        
+        var totalMinutes = 75;
+        var thresholdMinutes = 24;
+
         return {
             name: 'Threshold Klimsimulatie',
             description: '2×12min @ ' + watts + 'W climbing position',
-            duration: 75,
+            duration: totalMinutes,
             intensity: 'threshold',
             emoji: '🏔️',
             zone: 'threshold',
             structure: 'Warming-up: 20min\n2× (12min @ ' + watts + 'W, 8min recovery)\nCooling-down: 15min',
             details: ['Climbing position', 'Low cadans 65-75rpm', 'Steady effort', 'Breathing control'],
+            intensityDistribution: { zone1: Math.max(totalMinutes - thresholdMinutes, 0), zone3: 0, threshold: thresholdMinutes },
             tss: Math.round(75 * 0.85 * 0.85 * 100 / 60)
         };
     }
-    
+
     function getZone1ClimbingWorkout(type) {
         var baseWorkout = getZone1Workout(type);
         baseWorkout.name = 'Zone 1 Klim ' + (type === 'recovery' ? 'Herstel' : type === 'long' ? 'Lange Rit' : 'Basis');
@@ -1720,96 +2161,117 @@
     function getRacingVO2MaxWorkout(week) {
         var watts = Math.round(globalFtp * 1.18);
         var reps = Math.min(5 + week, 8);
-        
+        var totalMinutes = 75;
+        var highIntensityMinutes = reps * 3;
+        var zone1Minutes = Math.max(totalMinutes - highIntensityMinutes, 0);
+
         return {
             name: 'Zone 3 Racing VO₂max',
             description: reps + '×3min @ ' + watts + 'W race intensity',
-            duration: 75,
+            duration: totalMinutes,
             intensity: 'hard',
             emoji: '🏁',
             zone: 3,
             structure: 'Warming-up: 20min race pace\n' + reps + '× (3min @ ' + watts + 'W, 2min recovery)\nCooling-down: 15min',
             details: ['Race position', 'High cadans 95-105rpm', 'Attack simulation', 'Competitive mindset'],
+            intensityDistribution: { zone1: zone1Minutes, zone3: highIntensityMinutes, threshold: 0 },
             tss: Math.round(75 * 0.80 * 0.80 * 100 / 60)
         };
     }
-    
+
     function getSprintAnaerobicWorkout(week) {
         var watts = Math.round(globalFtp * 1.50);
         var reps = Math.min(6 + week, 10);
-        
+        var totalMinutes = 60;
+        var highIntensityMinutes = reps * 0.25;
+        var zone1Minutes = Math.max(totalMinutes - highIntensityMinutes, 0);
+
         return {
             name: 'Zone 3 Sprint Anaeroob',
             description: reps + '×15sec @ ' + watts + 'W maximum',
-            duration: 60,
+            duration: totalMinutes,
             intensity: 'hard',
             emoji: '⚡',
             zone: 3,
             structure: 'Warming-up: 20min met 3×5sec sprints\n' + reps + '× (15sec max, 3min recovery)\nCooling-down: 15min',
             details: ['ERG mode UIT!', 'Maximum power', 'Sprint technique', 'Neuromuscular power'],
+            intensityDistribution: { zone1: zone1Minutes, zone3: highIntensityMinutes, threshold: 0 },
             tss: Math.round(60 * 0.65 * 0.65 * 100 / 60)
         };
     }
-    
+
     function getEnduranceVO2MaxWorkout(week) {
         var watts = Math.round(globalFtp * 1.08);
         var reps = Math.min(3 + Math.floor(week/2), 5);
-        
+        var totalMinutes = 75;
+        var highIntensityMinutes = reps * 5;
+        var zone1Minutes = Math.max(totalMinutes - highIntensityMinutes, 0);
+
         return {
             name: 'Zone 3 Duur VO₂max',
             description: reps + '×5min @ ' + watts + 'W sustained',
-            duration: 75,
+            duration: totalMinutes,
             intensity: 'hard',
             emoji: '🔋',
             zone: 3,
             structure: 'Warming-up: 20min\n' + reps + '× (5min @ ' + watts + 'W, 5min recovery)\nCooling-down: 15min',
             details: ['Longer intervals', 'Sustainable intensity', 'Aerobic power', 'Endurance specific'],
+            intensityDistribution: { zone1: zone1Minutes, zone3: highIntensityMinutes, threshold: 0 },
             tss: Math.round(75 * 0.70 * 0.70 * 100 / 60)
         };
     }
-    
+
     // TEST WORKOUTS
     function getFTPTestWorkout() {
+        var durationTest = 75;
+        var thresholdMinutes = 20;
         return {
             name: 'FTP Test Protocol',
             description: '20min ALL-OUT test @ maximum sustainable power',
-            duration: 75,
+            duration: durationTest,
             intensity: 'test',
             emoji: '🏆',
             zone: 'threshold',
             structure: 'Warming-up: 20min met 5min @ 90% current FTP\nRest: 10min easy\nTEST: 20min MAXIMUM effort\nCooling-down: 15min\nFTP = 95% van 20min gemiddelde',
             details: ['Mental preparation cruciaal', 'Pacing strategie', 'Fans op maximum', 'Nieuwe FTP = 95% van test'],
-            tss: Math.round(75 * 0.95 * 0.95 * 100 / 60)
+            intensityDistribution: { zone1: Math.max(durationTest - thresholdMinutes, 0), zone3: 0, threshold: thresholdMinutes },
+            tss: Math.round(durationTest * 0.95 * 0.95 * 100 / 60)
         };
     }
     
     function getAlpeDuZwiftTestWorkout() {
         var targetWatts = Math.round(globalFtp * 0.85);
-        
+        var totalMinutes = 75;
+        var thresholdMinutes = 60;
+
         return {
             name: 'Alpe du Zwift Test',
             description: 'Klim Alpe @ ' + targetWatts + 'W steady - target <60min',
-            duration: 75,
+            duration: totalMinutes,
             intensity: 'test',
             emoji: '🏔️',
             zone: 'threshold',
             structure: 'Warming-up: 15min\nAlpe du Zwift: steady @ ' + targetWatts + 'W\nCooling-down: 10min',
             details: ['Target: sub-60 minuten', 'Steady pacing crucial', 'Test W/kg performance', 'Climbing endurance'],
+            intensityDistribution: { zone1: Math.max(totalMinutes - thresholdMinutes, 0), zone3: 0, threshold: thresholdMinutes },
             tss: Math.round(75 * 0.80 * 0.80 * 100 / 60)
         };
     }
-    
+
     function getTargetRaceWorkout() {
+        var durationRace = 60;
+        var highIntensityMinutes = 30;
         return {
             name: 'Target Race Performance',
             description: 'Je doel race - apply all training!',
-            duration: 60,
+            duration: durationRace,
             intensity: 'race',
             emoji: '🏆',
             zone: 3,
             structure: 'Warming-up: 20min race prep\nRACE: Apply training\nCooling-down: 10min celebration',
             details: ['Execute race plan', 'Use all trained systems', 'Peak performance', 'Trust your training!'],
-            tss: Math.round(60 * 0.90 * 0.90 * 100 / 60)
+            intensityDistribution: { zone1: Math.max(durationRace - highIntensityMinutes, 0), zone3: highIntensityMinutes, threshold: 0 },
+            tss: Math.round(durationRace * 0.90 * 0.90 * 100 / 60)
         };
     }
     
@@ -1825,6 +2287,7 @@
             zone: 1,
             structure: 'Warming-up: 20min\nTest: 2u40min @ ' + targetWatts + 'W\nCooling-down: 20min',
             details: ['Nutrition strategy test', 'Pacing discipline', 'Mental endurance', 'Aerobic efficiency'],
+            intensityDistribution: { zone1: 180, zone3: 0, threshold: 0 },
             tss: Math.round(180 * 0.68 * 0.68 * 100 / 60)
         };
     }
@@ -1839,6 +2302,7 @@
             zone: 1,
             structure: 'Join Zwift C or D race\nStay in Zone 1\nFocus: tactics, fun\nNo full efforts',
             details: ['Recovery race intensity', 'Practice positioning', 'Social riding', 'No stress, just fun'],
+            intensityDistribution: { zone1: 45, zone3: 0, threshold: 0 },
             tss: Math.round(45 * 0.65 * 0.65 * 100 / 60)
         };
     }
@@ -1999,10 +2463,17 @@
         document.querySelectorAll('input').forEach(function(el) {
             el.classList.remove('error');
         });
-        
+
         // Clear session data
         sessionData = {};
-        
+        try {
+            if (typeof localStorage !== 'undefined') {
+                localStorage.removeItem(STORAGE_KEY);
+            }
+        } catch (error) {
+            console.warn('Kon Vivelevelo instellingen niet verwijderen uit localStorage:', error);
+        }
+
         updateFormValidation();
         window.scrollTo(0, 0);
     }
